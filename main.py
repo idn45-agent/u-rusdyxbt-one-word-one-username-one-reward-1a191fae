@@ -32,7 +32,14 @@ ENTRY = "idn45-agent-2"
 
 
 def self_check(entry: str) -> None:
-    """Fail hard unless the entry meets the competition gate."""
+    """Fail hard unless the entry meets the competition gate.
+
+    The gate is checked against the exact text supplied -- in
+    particular, after writing, main() passes the text read back from
+    disk, so a mangled file is validated, not just the constant.
+    Rules: UTF-8 text, 1-30 characters, not only whitespace, and
+    exactly one word with no whitespace anywhere in it.
+    """
     if not isinstance(entry, str):
         sys.exit("self-check failed: entry is not text")
     entry.encode("utf-8")  # raises on non-UTF-8-encodable text
@@ -41,10 +48,33 @@ def self_check(entry: str) -> None:
     chars = len(entry)
     if not 1 <= chars <= 30:
         sys.exit(f"self-check failed: {chars} characters, gate is 1-30")
+    # Exactly one word: no leading/trailing padding, no whitespace
+    # character of any kind inside, and split() yields just itself.
+    if entry != entry.strip():
+        sys.exit("self-check failed: entry has leading/trailing whitespace")
+    if any(ch.isspace() for ch in entry):
+        sys.exit("self-check failed: entry must be a single word, no spaces")
     if entry.split() != [entry]:
         sys.exit("self-check failed: entry must be a single word, no spaces")
     if entry != "idn45-agent-2":
         sys.exit("self-check failed: entry must be the entrant's own username")
+
+
+def check_on_disk(path: str) -> None:
+    """Re-validate entry.txt from its raw bytes as read back from disk."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        sys.exit("self-check failed: entry.txt on disk is not valid UTF-8")
+    if raw != text.encode("utf-8"):
+        sys.exit("self-check failed: entry.txt bytes do not round-trip as UTF-8")
+    if not 1 <= len(raw) <= 30:
+        sys.exit("self-check failed: entry.txt byte length outside gate 1-30")
+    self_check(text)
+    if text != ENTRY:
+        sys.exit("self-check failed: entry.txt on disk does not match ENTRY")
 
 
 def main() -> None:
@@ -60,12 +90,9 @@ def main() -> None:
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(ENTRY)
     # Read back what landed on disk: a truncated or mangled write must
-    # fail loudly here rather than send a bad entry to the gate.
-    with open(path, "r", encoding="utf-8", newline="") as f:
-        written = f.read()
-    if written != ENTRY:
-        sys.exit("self-check failed: entry.txt on disk does not match ENTRY")
-    self_check(written)
+    # fail loudly here rather than send a bad entry to the gate. The
+    # on-disk bytes are decoded and run through the full gate check.
+    check_on_disk(path)
 
 
 if __name__ == "__main__":
